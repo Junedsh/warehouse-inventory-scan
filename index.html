@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Bin Scan</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<style>
+  :root{
+    --ink:#151a14;
+    --paper:#f2efe6;
+    --crate:#8a5a34;
+    --crate-dark:#5e3c22;
+    --stencil:#e8b23d;
+    --ok:#3f7d4f;
+    --bad:#a8412e;
+    --line:#d8d2c0;
+    --mono: 'Courier New', Courier, monospace;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;height:100%;background:var(--ink);}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    color:var(--ink);
+    display:flex;
+    justify-content:center;
+  }
+  #app{
+    width:100%;
+    max-width:480px;
+    min-height:100vh;
+    background:var(--paper);
+    display:flex;
+    flex-direction:column;
+    position:relative;
+  }
+
+  /* Header: stenciled crate label showing current location */
+  header{
+    background:repeating-linear-gradient(135deg, var(--crate), var(--crate) 12px, var(--crate-dark) 12px, var(--crate-dark) 13px);
+    padding:16px 18px 14px;
+    color:var(--paper);
+    position:relative;
+    flex-shrink:0;
+  }
+  header .eyebrow{
+    font-size:11px;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    opacity:.85;
+    margin:0 0 4px;
+  }
+  header .locline{
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    gap:10px;
+  }
+  header .loc{
+    font-family:var(--mono);
+    font-weight:700;
+    font-size:30px;
+    letter-spacing:.03em;
+    border:3px solid var(--stencil);
+    color:var(--stencil);
+    padding:2px 10px;
+    display:inline-block;
+    background:rgba(0,0,0,.15);
+  }
+  header .loc.empty{ color:rgba(255,255,255,.5); border-color:rgba(255,255,255,.35); font-size:18px; font-weight:400; }
+  header .gear{
+    background:none;border:none;color:var(--paper);opacity:.8;font-size:20px;cursor:pointer;padding:6px;
+  }
+
+  main{flex:1; padding:18px; display:flex; flex-direction:column; gap:14px; overflow-y:auto; padding-bottom:100px;}
+
+  .card{ background:#fff; border:1px solid var(--line); padding:16px; }
+  .hint{ font-size:13px; color:#6b6558; line-height:1.5; margin:0 0 12px;}
+  h2{ font-size:15px; text-transform:uppercase; letter-spacing:.08em; margin:0 0 4px; color:#4a453a;}
+
+  button{ font-family:inherit; cursor:pointer; }
+  .btn{
+    width:100%; padding:16px; font-size:16px; font-weight:600; border:2px solid var(--ink);
+    background:var(--ink); color:var(--paper); text-transform:uppercase; letter-spacing:.04em;
+  }
+  .btn:active{ transform:translateY(1px); }
+  .btn.secondary{ background:transparent; color:var(--ink); }
+  .btn.danger{ background:var(--bad); border-color:var(--bad); color:#fff; }
+  .btn.small{ padding:10px; font-size:13px; }
+  .btn:disabled{ opacity:.4; }
+
+  .toggle-row{ display:flex; gap:10px; }
+  .toggle{
+    flex:1; padding:18px 10px; text-align:center; border:2px solid var(--ink); font-weight:700;
+    text-transform:uppercase; letter-spacing:.05em; font-size:14px; background:#fff;
+  }
+  .toggle.active.add{ background:var(--ok); border-color:var(--ok); color:#fff; }
+  .toggle.active.remove{ background:var(--bad); border-color:var(--bad); color:#fff; }
+
+  #reader{ width:100%; border:2px solid var(--ink); overflow:hidden; }
+  #reader video{ width:100% !important; }
+
+  .scanlist{ display:flex; flex-direction:column; gap:0; border:1px solid var(--line); }
+  .scanrow{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:12px 14px; border-bottom:1px solid var(--line); background:#fff;
+  }
+  .scanrow:last-child{border-bottom:none;}
+  .scanrow.unknown{ background:#fbe9e4; }
+  .scanrow .code{ font-family:var(--mono); font-size:14px; word-break:break-all; padding-right:8px;}
+  .scanrow .qtybox{ display:flex; align-items:center; gap:8px; flex-shrink:0; }
+  .scanrow .qty{ font-weight:700; min-width:22px; text-align:center; }
+  .scanrow button{ border:1px solid var(--ink); background:#fff; width:26px; height:26px; font-size:15px; line-height:1;}
+  .flag{ font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:var(--bad); font-weight:700;}
+
+  .empty-note{ text-align:center; padding:24px 10px; color:#9a9384; font-size:13px; }
+
+  footer{
+    position:sticky; bottom:0; background:var(--paper); border-top:1px solid var(--line);
+    padding:12px 18px; display:flex; gap:10px;
+  }
+
+  .badge{ display:inline-block; font-size:11px; font-weight:700; padding:3px 8px; letter-spacing:.04em; }
+  .badge.synced{ background:var(--ok); color:#fff; }
+  .badge.pending{ background:var(--stencil); color:var(--ink); }
+
+  .modal-bg{ position:fixed; inset:0; background:rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; z-index:50; padding:20px;}
+  .modal{ background:#fff; width:100%; max-width:400px; padding:20px; max-height:85vh; overflow-y:auto;}
+  .modal h3{ margin-top:0; }
+  .modal label{ display:block; font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:#6b6558; margin:14px 0 4px;}
+  .modal input{ width:100%; padding:10px; border:1px solid var(--line); font-size:14px; font-family:var(--mono);}
+  .hidden{ display:none !important; }
+  .toast{
+    position:fixed; bottom:90px; left:50%; transform:translateX(-50%); background:var(--ink); color:var(--paper);
+    padding:10px 18px; font-size:13px; z-index:60; opacity:0; transition:opacity .2s; pointer-events:none;
+  }
+  .toast.show{ opacity:1; }
+  .worker-tag{ font-size:11px; opacity:.85; margin-top:2px;}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="locline">
+      <div>
+        <p class="eyebrow">Current bin</p>
+        <div id="locLabel" class="loc empty">Not scanned</div>
+        <div class="worker-tag" id="workerTag"></div>
+      </div>
+      <button class="gear" onclick="openSettings()">&#9881;</button>
+    </div>
+  </header>
+
+  <main id="main"></main>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<!-- Settings Modal -->
+<div class="modal-bg hidden" id="settingsModal">
+  <div class="modal">
+    <h3>Setup</h3>
+    <label>Worker name</label>
+    <input id="cfgWorker" placeholder="e.g. Ramesh">
+
+    <label>Google Sheet endpoint URL <span style="opacity:.5">(optional)</span></label>
+    <input id="cfgUrl" placeholder="https://script.google.com/macros/s/xxx/exec">
+
+    <p class="hint" style="margin-top:14px;">Without this, scans are saved on this phone only. Add it any time to start syncing to the Sheet — nothing already scanned is lost, and it'll sync on the next connection.</p>
+
+    <div style="display:flex; gap:10px; margin-top:16px;">
+      <button class="btn secondary small" onclick="closeSettings()" style="flex:1;">Cancel</button>
+      <button class="btn small" onclick="saveSettings()" style="flex:1;">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---------------- IndexedDB layer ---------------- */
+const DB_NAME = 'binscan';
+const DB_VERSION = 1;
+let db;
+
+function openDB(){
+  return new Promise((resolve, reject)=>{
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e)=>{
+      const d = e.target.result;
+      if(!d.objectStoreNames.contains('events')){
+        const store = d.createObjectStore('events', { keyPath:'id' });
+        store.createIndex('synced', 'synced');
+      }
+      if(!d.objectStoreNames.contains('settings')){
+        d.createObjectStore('settings', { keyPath:'key' });
+      }
+    };
+    req.onsuccess = (e)=>{ db = e.target.result; resolve(db); };
+    req.onerror = (e)=> reject(e);
+  });
+}
+
+function idbPut(store, value){
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(store, 'readwrite');
+    tx.objectStore(store).put(value);
+    tx.oncomplete = ()=> resolve();
+    tx.onerror = (e)=> reject(e);
+  });
+}
+function idbGetAll(store){
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(store, 'readonly');
+    const req = tx.objectStore(store).getAll();
+    req.onsuccess = ()=> resolve(req.result);
+    req.onerror = (e)=> reject(e);
+  });
+}
+function idbGet(store, key){
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction(store, 'readonly');
+    const req = tx.objectStore(store).get(key);
+    req.onsuccess = ()=> resolve(req.result);
+    req.onerror = (e)=> reject(e);
+  });
+}
+
+function uuid(){
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c=>{
+    const r = Math.random()*16|0, v = c==='x'?r:(r&0x3|0x8);
+    return v.toString(16);
+  });
+}
+
+/* ---------------- App state ---------------- */
+let settings = { worker:'', url:'' };
+let currentLocation = null;
+let currentAction = 'ADD';
+let currentScans = {}; // barcode -> {qty, unknown}
+let html5Qr = null;
+let scanMode = null; // 'location' | 'sku'
+
+const KNOWN_SKU_PREFIXES = null; // no local sku master by default -> everything treated as known unless you wire one up
+
+/* ---------------- Boot ---------------- */
+async function boot(){
+  await openDB();
+  const w = await idbGet('settings', 'worker');
+  const u = await idbGet('settings', 'url');
+  settings.worker = w ? w.value : '';
+  settings.url = u ? u.value : '';
+  if(!settings.worker){ openSettings(); }
+  renderWorkerTag();
+  renderLocationScreen();
+  trySync();
+}
+
+function renderWorkerTag(){
+  document.getElementById('workerTag').textContent = settings.worker ? ('Worker: ' + settings.worker) : '';
+}
+
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(()=> t.classList.remove('show'), 1600);
+}
+
+/* ---------------- Settings modal ---------------- */
+function openSettings(){
+  document.getElementById('cfgWorker').value = settings.worker;
+  document.getElementById('cfgUrl').value = settings.url;
+  document.getElementById('settingsModal').classList.remove('hidden');
+}
+function closeSettings(){
+  document.getElementById('settingsModal').classList.add('hidden');
+}
+async function saveSettings(){
+  settings.worker = document.getElementById('cfgWorker').value.trim();
+  settings.url = document.getElementById('cfgUrl').value.trim();
+  await idbPut('settings', { key:'worker', value: settings.worker });
+  await idbPut('settings', { key:'url', value: settings.url });
+  if(settings.url) toast('Sheet endpoint saved');
+  renderWorkerTag();
+  closeSettings();
+  trySync();
+}
+
+/* ---------------- Header ---------------- */
+function setLocationHeader(code){
+  const el = document.getElementById('locLabel');
+  if(code){ el.textContent = code; el.classList.remove('empty'); }
+  else { el.textContent = 'Not scanned'; el.classList.add('empty'); }
+}
+
+/* ---------------- Screen: scan location ---------------- */
+function renderLocationScreen(){
+  stopScanner();
+  setLocationHeader(currentLocation);
+  const main = document.getElementById('main');
+  main.innerHTML = `
+    <div class="card">
+      <h2>Step 1 — Scan bin location</h2>
+      <p class="hint">Point the camera at the location barcode on the shelf (e.g. R1S2B2), or type it in below.</p>
+      <div id="reader" style="display:none;"></div>
+      <button class="btn" id="startLocScanBtn">Start camera</button>
+      <div style="height:10px;"></div>
+      <input id="manualLoc" placeholder="Type location code" style="width:100%; padding:12px; border:1px solid var(--line); font-family:var(--mono); font-size:15px;">
+      <div style="height:10px;"></div>
+      <button class="btn secondary" id="manualLocBtn">Use typed code</button>
+    </div>
+    ${renderQueueSummaryCard()}
+  `;
+  document.getElementById('startLocScanBtn').onclick = ()=> startScanner('location');
+  document.getElementById('manualLocBtn').onclick = ()=>{
+    const v = document.getElementById('manualLoc').value.trim().toUpperCase();
+    if(v){ onLocationScanned(v); }
+  };
+}
+
+function onLocationScanned(code){
+  currentLocation = code;
+  currentScans = {};
+  currentAction = 'ADD';
+  toast('Bin set: ' + code);
+  renderActionScreen();
+}
+
+/* ---------------- Screen: action + sku scanning ---------------- */
+function renderActionScreen(){
+  stopScanner();
+  setLocationHeader(currentLocation);
+  const main = document.getElementById('main');
+  const rows = Object.keys(currentScans);
+  main.innerHTML = `
+    <div class="card">
+      <h2>Step 2 — Action</h2>
+      <div class="toggle-row">
+        <div class="toggle ${currentAction==='ADD'?'active add':''}" id="toggleAdd">Add stock</div>
+        <div class="toggle ${currentAction==='REMOVE'?'active remove':''}" id="toggleRemove">Remove stock</div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Step 3 — Scan strips</h2>
+      <p class="hint">Scan each strip's barcode. Same code again just bumps the count.</p>
+      <div id="reader" style="display:none;"></div>
+      <button class="btn" id="startSkuScanBtn">Start camera</button>
+      <div style="height:10px;"></div>
+      <input id="manualSku" placeholder="Type barcode" style="width:100%; padding:12px; border:1px solid var(--line); font-family:var(--mono); font-size:15px;">
+      <div style="height:10px;"></div>
+      <button class="btn secondary" id="manualSkuBtn">Add typed code</button>
+    </div>
+    <div class="card">
+      <h2>Scanned in this bin</h2>
+      ${rows.length ? `<div class="scanlist">${rows.map(rowHtml).join('')}</div>` : `<div class="empty-note">Nothing scanned yet</div>`}
+    </div>
+    <div style="display:flex; gap:10px;">
+      <button class="btn secondary" id="changeLocBtn" style="flex:1;">Change bin</button>
+      <button class="btn" id="finishBinBtn" style="flex:1;" ${rows.length?'':'disabled'}>Finish bin</button>
+    </div>
+  `;
+  document.getElementById('toggleAdd').onclick = ()=>{ currentAction='ADD'; renderActionScreen(); };
+  document.getElementById('toggleRemove').onclick = ()=>{ currentAction='REMOVE'; renderActionScreen(); };
+  document.getElementById('startSkuScanBtn').onclick = ()=> startScanner('sku');
+  document.getElementById('manualSkuBtn').onclick = ()=>{
+    const v = document.getElementById('manualSku').value.trim();
+    if(v){ onSkuScanned(v); document.getElementById('manualSku').value=''; }
+  };
+  document.getElementById('changeLocBtn').onclick = ()=>{
+    if(rows.length && !confirm('Discard unsaved scans for this bin?')) return;
+    currentLocation = null; currentScans = {};
+    renderLocationScreen();
+  };
+  document.getElementById('finishBinBtn').onclick = finishBin;
+
+  rows.forEach(code=>{
+    const incBtn = document.getElementById('inc-'+cssSafe(code));
+    const decBtn = document.getElementById('dec-'+cssSafe(code));
+    if(incBtn) incBtn.onclick = ()=>{ currentScans[code].qty++; renderActionScreen(); };
+    if(decBtn) decBtn.onclick = ()=>{
+      currentScans[code].qty--;
+      if(currentScans[code].qty<=0) delete currentScans[code];
+      renderActionScreen();
+    };
+  });
+}
+
+function cssSafe(s){ return s.replace(/[^a-zA-Z0-9]/g,'_'); }
+
+function rowHtml(code){
+  const item = currentScans[code];
+  return `
+    <div class="scanrow ${item.unknown?'unknown':''}">
+      <div>
+        <div class="code">${escapeHtml(code)}</div>
+        ${item.unknown ? '<div class="flag">Unknown barcode</div>' : ''}
+      </div>
+      <div class="qtybox">
+        <button id="dec-${cssSafe(code)}">-</button>
+        <div class="qty">${item.qty}</div>
+        <button id="inc-${cssSafe(code)}">+</button>
+      </div>
+    </div>`;
+}
+
+function escapeHtml(s){
+  return s.replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function onSkuScanned(code){
+  const isUnknown = KNOWN_SKU_PREFIXES ? !KNOWN_SKU_PREFIXES.some(p=>code.startsWith(p)) : false;
+  if(!currentScans[code]) currentScans[code] = { qty:0, unknown:isUnknown };
+  currentScans[code].qty++;
+  navigator.vibrate && navigator.vibrate(60);
+  renderActionScreen();
+}
+
+async function finishBin(){
+  const rows = Object.entries(currentScans);
+  if(!rows.length) return;
+  const now = new Date().toISOString();
+  for(const [code, item] of rows){
+    const ev = {
+      id: uuid(),
+      location_code: currentLocation,
+      sku_barcode: code,
+      action: currentAction,
+      qty: item.qty,
+      unknown: item.unknown,
+      worker: settings.worker || 'unknown',
+      scanned_at: now,
+      synced: false
+    };
+    await idbPut('events', ev);
+  }
+  toast('Saved ' + rows.length + ' item(s) for ' + currentLocation);
+  currentLocation = null;
+  currentScans = {};
+  renderLocationScreen();
+  trySync();
+}
+
+/* ---------------- Camera scanning (shared) ---------------- */
+function startScanner(mode){
+  scanMode = mode;
+  const readerEl = document.getElementById('reader');
+  readerEl.style.display = 'block';
+  html5Qr = new Html5Qrcode('reader');
+  const config = { fps: 12, qrbox: { width: 260, height: 140 } };
+  html5Qr.start(
+    { facingMode: 'environment' },
+    config,
+    (decodedText)=>{
+      if(mode==='location'){
+        stopScanner();
+        onLocationScanned(decodedText.toUpperCase());
+      } else {
+        onSkuScanned(decodedText);
+      }
+    },
+    ()=>{ /* per-frame decode failure, ignore */ }
+  ).catch(err=>{
+    toast('Camera error — check permissions');
+    console.error(err);
+  });
+}
+function stopScanner(){
+  if(html5Qr){
+    html5Qr.stop().then(()=> html5Qr.clear()).catch(()=>{});
+    html5Qr = null;
+  }
+}
+
+/* ---------------- Sync (Google Sheet via Apps Script web app) ---------------- */
+let syncing = false;
+async function trySync(){
+  if(!settings.url || syncing) return;
+  syncing = true;
+  try{
+    const all = await idbGetAll('events');
+    const pending = all.filter(e=> !e.synced);
+    if(!pending.length) return;
+    const payload = pending.map(e=>({
+      id: e.id, location_code: e.location_code, sku_barcode: e.sku_barcode,
+      action: e.action, qty: e.qty, unknown: e.unknown, worker: e.worker, scanned_at: e.scanned_at
+    }));
+    // Body sent as a plain string (default text/plain content-type) so the
+    // browser treats this as a "simple request" and skips the CORS preflight
+    // that Apps Script web apps don't handle.
+    const res = await fetch(settings.url, { method:'POST', body: JSON.stringify(payload) });
+    const json = await res.json().catch(()=>null);
+    if(res.ok && json && json.ok){
+      for(const e of pending){ e.synced = true; await idbPut('events', e); }
+      toast('Synced ' + pending.length + ' scan(s) to Sheet');
+      if(document.getElementById('queueCount')) renderLocationScreen();
+    } else {
+      console.warn('Sync failed', json);
+    }
+  } catch(e){
+    console.warn('Sync error', e); // offline or endpoint unreachable — will retry
+  } finally {
+    syncing = false;
+  }
+}
+
+function renderQueueSummaryCard(){
+  return `<div class="card" id="queueCard">
+    <h2>Sync status</h2>
+    <p class="hint" id="queueCount">Checking...</p>
+    <button class="btn secondary small" onclick="trySync()">Sync now</button>
+  </div>`;
+}
+
+async function updateQueueCount(){
+  const el = document.getElementById('queueCount');
+  if(!el) return;
+  const all = await idbGetAll('events');
+  const pending = all.filter(e=>!e.synced).length;
+  const synced = all.length - pending;
+  el.innerHTML = settings.url
+    ? `<span class="badge pending">${pending} pending</span> &nbsp; <span class="badge synced">${synced} synced</span>`
+    : `<span class="badge pending">${pending} saved on device</span> — add a Sheet endpoint in settings to sync.`;
+}
+
+window.addEventListener('online', trySync);
+setInterval(trySync, 20000);
+setInterval(updateQueueCount, 1500);
+
+boot();
+</script>
+</body>
+</html>
